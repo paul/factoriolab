@@ -70,4 +70,10 @@ export const gameInfo: Record<Game, GameInfo> = {
     label: 'options.game.outworldStation',
     modId: 'ows',
   },
+  [Game.Desynced]: {
+    icon: 'game-desynced',
+    route: '/dsy',
+    label: 'options.game.desynced',
+    modId: 'dsy',
+  },
 };

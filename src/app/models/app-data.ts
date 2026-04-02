@@ -153,6 +153,7 @@ export const data: AppData = {
       game: Game.OutworldStation,
       flags: 'fdy',
     },
+    { id: 'dsy', name: 'Desynced', game: Game.Desynced, flags: 'dsy' },
   ],
   modHashV0: [
     '1.1',
@@ -231,5 +232,6 @@ export const data: AppData = {
     'fdy',
     'ows',
     'spa',
+    'dsy',
   ],
 };

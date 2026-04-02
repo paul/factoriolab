@@ -210,3 +210,7 @@ body.light .module::before {
 .transparent::before {
   background-position: -256px -256px;
 }
+
+.game-desynced::before {
+  background-position: 0 -320px;
+}

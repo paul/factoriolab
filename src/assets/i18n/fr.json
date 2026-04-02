@@ -57,7 +57,8 @@
       "factorY": "Factor Y",
       "mindustry": "Mindustry",
       "foundry": "Foundry",
-      "outworldStation": "Outworld Station"
+      "outworldStation": "Outworld Station",
+      "desynced": "Desynced"
     },
     "inserterCapacity": {
       "capacity0": "Pas de bonus de capacité",
