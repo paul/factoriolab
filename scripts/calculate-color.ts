@@ -3,13 +3,14 @@ import fs from 'fs';
 
 import { ModData } from '~/models/data/mod-data';
 
-import { data } from '../src/data';
+import { data } from 'src/app/models/app-data';
+import { ModInfo } from '~/models/mod';
 import { getJsonData } from './helpers/file.helpers';
 import { logTime } from './helpers/log.helpers';
 
 // Load mods from arguments
 let mods = process.argv.slice(2);
-if (mods.length === 0) mods = data.mods.map((m) => m.id);
+if (mods.length === 0) mods = data.mods.map((m: ModInfo) => m.id);
 
 /** Run all scripts required to update an array of Factorio mod sets */
 async function updateMods(mods: string[]): Promise<void> {
