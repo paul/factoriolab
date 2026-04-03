@@ -255,14 +255,19 @@ local function raw_recipes(def)
     local inputs = as_object({})
     for k, v in pairs(r.ingredients) do inputs[k] = v end
     for pid, ticks in pairs(r.producers) do
-      out[#out+1] = { producer_id=pid, ticks=ticks, inputs=inputs, output_count=r.amount }
+      -- Exclude mission-specific buildings that are not player-buildable
+      if not pid:match("^c_mission_") then
+        out[#out+1] = { producer_id=pid, ticks=ticks, inputs=inputs, output_count=r.amount }
+      end
     end
     table.sort(out, function(a,b) return a.producer_id < b.producer_id end)
   end
   if def.mining_recipe then
     local mining = {}
     for pid, ticks in pairs(def.mining_recipe) do
-      mining[#mining+1] = { producer_id=pid, ticks=ticks, inputs=as_object({}), output_count=1 }
+      if not pid:match("^c_mission_") then
+        mining[#mining+1] = { producer_id=pid, ticks=ticks, inputs=as_object({}), output_count=1 }
+      end
     end
     table.sort(mining, function(a,b) return a.producer_id < b.producer_id end)
     for _, r in ipairs(mining) do out[#out+1] = r end
@@ -295,10 +300,19 @@ end
 local producer_ids = {}
 local function collect_producers(def)
   if def.production_recipe and def.production_recipe ~= false then
-    for pid in pairs(def.production_recipe.producers) do producer_ids[pid] = true end
+    for pid in pairs(def.production_recipe.producers) do
+      -- Exclude mission-specific buildings that are not player-buildable
+      if not pid:match("^c_mission_") then
+        producer_ids[pid] = true
+      end
+    end
   end
   if def.mining_recipe then
-    for pid in pairs(def.mining_recipe) do producer_ids[pid] = true end
+    for pid in pairs(def.mining_recipe) do
+      if not pid:match("^c_mission_") then
+        producer_ids[pid] = true
+      end
+    end
   end
 end
 for _, def in pairs(data.items)      do collect_producers(def) end
@@ -371,7 +385,7 @@ local CATEGORY_ICONS = {
   component = "c_fabricator",
   bot       = "f_bot_1s_a",
   building  = "f_amac",
-  machine   = "c_mission_human_aicenter",
+  machine   = "c_fabricator",
 }
 
 -- Category order for sort position
@@ -515,9 +529,10 @@ for pid in pairs(producer_ids) do sorted_pids[#sorted_pids+1] = pid end
 table.sort(sorted_pids)
 
 for _, pid in ipairs(sorted_pids) do
+  -- Player-placed buildings don't accept overclocking modules
   local machine_def = as_object({
     speed   = 1,
-    modules = 1,
+    modules = pid == "player" and 0 or 1,
     type    = "electric",
   })
 
@@ -685,7 +700,165 @@ for _, e in ipairs(entities) do
 end
 
 -- ---------------------------------------------------------------------------
--- Assemble data.json
+-- Preset definitions
+-- ---------------------------------------------------------------------------
+
+-- Producers that belong to the "robot tier" — autonomous buildings the
+-- player constructs and equips with components.  Any recipe produced by at
+-- least one of these producers is considered robot-producible.
+local ROBOT_TIER_PRODUCERS = {
+  c_fabricator         = true,
+  c_assembler          = true,
+  c_refinery           = true,
+  c_robotics_factory   = true,
+  c_advanced_assembler = true,
+  c_advanced_refinery  = true,
+  c_data_analyzer      = true,
+  c_particle_forge     = true,
+  c_miner              = true,
+  c_virus_decomposer   = true,
+  c_carrier_factory    = true,
+  c_satellite_launcher = true,
+}
+
+-- machineRank for the Minimum preset: robot-only producers, basic-to-advanced order
+local MINIMUM_MACHINE_RANK = {
+  "c_miner",
+  "c_fabricator",
+  "c_assembler",
+  "c_refinery",
+  "c_robotics_factory",
+  "c_advanced_assembler",
+  "c_advanced_refinery",
+  "c_data_analyzer",
+  "c_particle_forge",
+  "c_virus_decomposer",
+  "c_carrier_factory",
+  "c_satellite_launcher",
+}
+
+-- machineRank for the Upgraded preset: all producers, advanced preferred
+local UPGRADED_MACHINE_RANK = {
+  "c_adv_miner",
+  "c_advanced_assembler",
+  "c_advanced_refinery",
+  "c_robotics_factory",
+  "c_data_analyzer",
+  "c_particle_forge",
+  "c_human_miner",
+  "c_extractor",
+  "c_human_refinery",
+  "c_human_factory",
+  "c_human_factory_robots",
+  "c_human_commandcenter",
+  "c_human_barracks",
+  "c_human_vehiclefactory",
+  "c_human_aicenter",
+  "c_human_datacomplex",
+  "c_human_science_analyzer_robots",
+  "c_human_spaceport",
+  "c_alien_miner",
+  "c_alien_factory_robots",
+  "c_alien_factory",
+  "c_alien_factory_comp",
+  "c_alien_droneport",
+  "c_adv_alien_factory",
+  "c_reforming_pool",
+  "c_reforming_pool_comp",
+  "c_heart_factory",
+  "c_bloom_producer",
+  "c_space_elevator_factory",
+  "c_virus_decomposer",
+  "c_carrier_factory",
+  "c_satellite_launcher",
+  "c_space_launcher",
+  "c_miner",
+  "c_fabricator",
+  "c_assembler",
+  "c_refinery",
+}
+
+-- ---------------------------------------------------------------------------
+-- Auto-generate excludedRecipes for the Minimum preset
+--
+-- Logic: for each item that has multiple recipe variants (one per producer),
+-- if at least one variant uses a robot-tier producer, exclude all non-robot
+-- variants.  Items that are only producible by human/alien producers have
+-- nothing to exclude.
+-- ---------------------------------------------------------------------------
+
+-- Group recipe IDs by output item ID
+local recipes_by_item = {}  -- item_id -> list of { recipe_id, producer_id }
+for _, recipe in ipairs(recipes_out) do
+  local item_id = recipe.out and next(recipe.out)
+  if item_id then
+    local producer_id = recipe.producers and recipe.producers[1]
+    recipes_by_item[item_id] = recipes_by_item[item_id] or {}
+    recipes_by_item[item_id][#recipes_by_item[item_id]+1] =
+      { recipe_id = recipe.id, producer_id = producer_id }
+  end
+end
+
+local min_excluded_recipes = {}
+
+for _, variants in pairs(recipes_by_item) do
+  -- Only items with multiple recipe variants need exclusion logic
+  if #variants <= 1 then goto next_item end
+
+  -- Check whether at least one variant uses a robot-tier producer
+  local has_robot_variant = false
+  for _, v in ipairs(variants) do
+    if ROBOT_TIER_PRODUCERS[v.producer_id] then
+      has_robot_variant = true
+      break
+    end
+  end
+
+  -- If so, exclude all non-robot variants
+  if has_robot_variant then
+    for _, v in ipairs(variants) do
+      if not ROBOT_TIER_PRODUCERS[v.producer_id] then
+        min_excluded_recipes[#min_excluded_recipes+1] = v.recipe_id
+      end
+    end
+  end
+
+  ::next_item::
+end
+
+table.sort(min_excluded_recipes)
+
+io.stderr:write(("Minimum preset: %d excluded recipes\n"):format(#min_excluded_recipes))
+
+-- ---------------------------------------------------------------------------
+-- Build defaults object  (CustomPresetsJson format)
+-- ---------------------------------------------------------------------------
+
+local defaults = as_object({
+  machineRank     = MINIMUM_MACHINE_RANK,
+  excludedRecipes = min_excluded_recipes,
+  moduleRank      = {},
+  presets = {
+    as_object({
+      id             = 0,
+      label          = "options.preset.minimum",
+      machineRank    = MINIMUM_MACHINE_RANK,
+      excludedRecipes = min_excluded_recipes,
+      moduleRank     = {},
+    }),
+    as_object({
+      id             = 1,
+      label          = "options.preset.upgraded",
+      machineRank    = UPGRADED_MACHINE_RANK,
+      excludedRecipes = {},
+      moduleRank     = {},
+    }),
+  },
+})
+
+-- ---------------------------------------------------------------------------
+-- Assemble and write data.json
+-- The app reads defaults from within data.json (ModData.defaults field).
 -- ---------------------------------------------------------------------------
 
 local mod_data = as_object({
@@ -694,11 +867,8 @@ local mod_data = as_object({
   icons      = icons_out,
   items      = items_out,
   recipes    = recipes_out,
+  defaults   = defaults,
 })
-
--- ---------------------------------------------------------------------------
--- Write data.json
--- ---------------------------------------------------------------------------
 
 run(("mkdir -p %q"):format(output_dir))
 
@@ -711,15 +881,8 @@ io.stderr:write(("Wrote %s (%d items, %d recipes, %d icons)\n"):format(
   data_json, #items_out, #recipes_out, #icons_out))
 
 -- ---------------------------------------------------------------------------
--- Write defaults.json
+-- Write defaults.json  (kept as a readable reference; app reads from data.json)
 -- ---------------------------------------------------------------------------
-
-local defaults = as_object({
-  moduleRank    = {},
-  minMachineRank = {},
-  maxMachineRank = {},
-  excludedRecipes = {},
-})
 
 local defaults_path = output_dir .. "/defaults.json"
 local df = assert(io.open(defaults_path, "w"))
